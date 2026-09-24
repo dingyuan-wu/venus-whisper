@@ -1,0 +1,196 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Agent 循环与审批闸门",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "legend": {
+      "mode": "hidden"
+    }
+  },
+  "lanes": [
+    {
+      "id": "ui",
+      "label": "前端（React）"
+    },
+    {
+      "id": "agent",
+      "label": "Agent 循环（Rust）"
+    },
+    {
+      "id": "io",
+      "label": "LLM / 工具"
+    }
+  ],
+  "phases": [
+    {
+      "id": "p-in",
+      "label": "输入",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "p-think",
+      "label": "推理与策略判定",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "p-act",
+      "label": "执行与回复",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "mainPath": [
+    "user",
+    "compose",
+    "llm",
+    "decide",
+    "done"
+  ],
+  "nodes": [
+    {
+      "id": "user",
+      "lane": "ui",
+      "col": 0,
+      "type": "external",
+      "label": "用户消息",
+      "sublabel": "send_message",
+      "width": 132
+    },
+    {
+      "id": "approve",
+      "lane": "agent",
+      "col": 4,
+      "type": "security",
+      "label": "审批闸门",
+      "sublabel": "自动放行 / 用户确认",
+      "tag": "拒绝返回 denied 结果",
+      "width": 132
+    },
+    {
+      "id": "done",
+      "lane": "ui",
+      "col": 5,
+      "type": "backend",
+      "label": "最终回复",
+      "sublabel": "正文 + meta，落库 SQLite",
+      "width": 132
+    },
+    {
+      "id": "compose",
+      "lane": "agent",
+      "col": 1,
+      "type": "backend",
+      "label": "组装上下文",
+      "sublabel": "persona.md + 历史",
+      "width": 132
+    },
+    {
+      "id": "decide",
+      "lane": "agent",
+      "col": 3,
+      "type": "security",
+      "label": "tool_calls 判定",
+      "sublabel": "ask / auto-edit / full-auto",
+      "tag": "路径沙箱 · 最大轮次",
+      "width": 132
+    },
+    {
+      "id": "llm",
+      "lane": "io",
+      "col": 3,
+      "type": "cloud",
+      "label": "LLM 流式调用",
+      "sublabel": "OpenAI 兼容 + tools",
+      "width": 132
+    },
+    {
+      "id": "exec",
+      "lane": "io",
+      "col": 4,
+      "type": "messagebus",
+      "label": "执行工具",
+      "sublabel": "fs / shell / web",
+      "width": 132
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "user",
+      "to": "compose"
+    },
+    {
+      "id": "e2",
+      "from": "compose",
+      "to": "llm",
+      "label": "上下文 + tools",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          316,
+          246
+        ],
+        [
+          316,
+          372
+        ]
+      ]
+    },
+    {
+      "id": "e3",
+      "from": "llm",
+      "to": "decide",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "route": "straight"
+    },
+    {
+      "id": "e4",
+      "from": "decide",
+      "to": "done",
+      "label": "无 tool_calls",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "e5",
+      "from": "decide",
+      "to": "approve",
+      "label": "有 tool_calls",
+      "variant": "dashed",
+      "role": "branch",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "e8",
+      "from": "approve",
+      "to": "exec",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight"
+    },
+    {
+      "id": "e10",
+      "from": "exec",
+      "to": "compose",
+      "label": "agent:tool_result，追加后回到循环",
+      "variant": "dashed",
+      "role": "return",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "route": "bottom-channel"
+    }
+  ]
+}

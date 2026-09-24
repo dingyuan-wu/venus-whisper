@@ -1,0 +1,336 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Venus Whisper 系统架构（v1）",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "chat-path",
+        "label": "对话主路径",
+        "focus": [
+          "user",
+          "chat",
+          "loop",
+          "llmad",
+          "llmext"
+        ],
+        "note": "用户消息经前端进入 Rust Agent 循环，再经 OpenAI 兼容适配器流式到达 LLM 端点。"
+      },
+      {
+        "id": "tool-path",
+        "label": "工具与审批",
+        "focus": [
+          "loop",
+          "policy",
+          "tools",
+          "workspace"
+        ],
+        "note": "tool_calls 先过审批策略与路径沙箱，再由工具集在 workspace 内执行。"
+      },
+      {
+        "id": "v2-hooks",
+        "label": "v2 预留",
+        "focus": [
+          "pet",
+          "loop"
+        ],
+        "note": "宠物窗口只是 agent:reaction 事件的第二个订阅者，核心不改。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "键盘 / 快捷键 / 托盘",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        130,
+        64
+      ]
+    },
+    {
+      "id": "chat",
+      "type": "frontend",
+      "label": "聊天窗口",
+      "sublabel": "React + island UI",
+      "pos": [
+        230,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "纯 UI，无业务逻辑"
+    },
+    {
+      "id": "pet",
+      "type": "frontend",
+      "label": "宠物窗口",
+      "sublabel": "Live2D，v2",
+      "pos": [
+        230,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "loop",
+      "type": "backend",
+      "label": "Agent 循环",
+      "sublabel": "agent/loop.rs",
+      "pos": [
+        500,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "唯一编排点"
+    },
+    {
+      "id": "policy",
+      "type": "security",
+      "label": "审批策略 + 路径沙箱",
+      "sublabel": "agent/policy.rs",
+      "pos": [
+        500,
+        130
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "工具集",
+      "sublabel": "fs / shell / web",
+      "pos": [
+        740,
+        130
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "workspace",
+      "type": "external",
+      "label": "Workspace",
+      "sublabel": "本地文件 + Shell",
+      "pos": [
+        980,
+        130
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "llmad",
+      "type": "backend",
+      "label": "OpenAI 兼容适配器",
+      "sublabel": "llm/openai.rs · SSE",
+      "pos": [
+        740,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "llmext",
+      "type": "external",
+      "label": "LLM 端点",
+      "sublabel": "LiteLLM / Ollama / OpenAI",
+      "pos": [
+        980,
+        300
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "会话 / 消息 / 设置",
+      "pos": [
+        500,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "config",
+      "type": "database",
+      "label": "配置文件",
+      "sublabel": "config.toml + persona.md",
+      "pos": [
+        740,
+        470
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "tag": "用户可直接编辑"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Tauri 2 应用",
+      "pad": 44,
+      "wraps": [
+        "chat",
+        "pet",
+        "loop",
+        "policy",
+        "tools",
+        "llmad",
+        "store",
+        "config"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Rust 核心 src-tauri",
+      "pad": 20,
+      "wraps": [
+        "loop",
+        "policy",
+        "tools",
+        "llmad",
+        "store",
+        "config"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "user-chat",
+      "from": "user",
+      "to": "chat",
+      "label": "输入"
+    },
+    {
+      "id": "chat-loop",
+      "from": "chat",
+      "to": "loop",
+      "label": "invoke / agent:* 事件",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pet-loop",
+      "from": "pet",
+      "to": "loop",
+      "label": "订阅 agent:reaction",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "bottom"
+    },
+    {
+      "id": "loop-policy",
+      "from": "loop",
+      "to": "policy",
+      "label": "tool_calls 判定",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "policy-tools",
+      "from": "policy",
+      "to": "tools",
+      "label": "已批准"
+    },
+    {
+      "id": "tools-ws",
+      "from": "tools",
+      "to": "workspace",
+      "label": "读写 / 执行"
+    },
+    {
+      "id": "loop-llmad",
+      "from": "loop",
+      "to": "llmad",
+      "label": "messages + tools",
+      "variant": "emphasis"
+    },
+    {
+      "id": "llmad-ext",
+      "from": "llmad",
+      "to": "llmext",
+      "label": "HTTPS SSE"
+    },
+    {
+      "id": "loop-store",
+      "from": "loop",
+      "to": "store",
+      "label": "会话落库",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24,
+      "labelDx": -50
+    },
+    {
+      "id": "config-llmad",
+      "from": "config",
+      "to": "llmad",
+      "label": "端点 / 模型 / Key",
+      "variant": "default",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "职责边界",
+      "items": [
+        "Rust 只做操作系统相关的事：窗口、配置文件、SQLite、HTTP、文件与进程",
+        "前端是事件消费者，不持有业务状态"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "安全",
+      "items": [
+        "所有工具限制在 workspace 目录内，越界直接拒绝",
+        "写文件与 shell 按 ask / auto-edit / full-auto 三档审批",
+        "API Key 与 persona.md 是普通配置文件，设置页和手改文件都生效"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "v2 钩子",
+      "items": [
+        "agent:reaction 事件：模型正文末尾 meta，Rust 剥离后广播",
+        "pet 窗口配置预写在 tauri.conf.json，v1 不创建"
+      ]
+    }
+  ]
+}
