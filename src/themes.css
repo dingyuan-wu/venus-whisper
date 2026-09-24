@@ -1,0 +1,78 @@
+/* 主题变量的默认值（= 内置 mint）。实际主题来自 ~/.venus-whisper/themes/*.toml，
+   由 store.applyTheme 写成 <html style="--vw-*: …; --code-*: …">，覆盖这里的默认。 */
+:root {
+  --vw-canvas: #f3fbf8;
+  --vw-surface: #ffffff;
+  --vw-side: #e9f7f2;
+  --vw-line: #cfeee5;
+  --vw-ink: #2f5d54;
+  --vw-ink-soft: #6f9a90;
+  --vw-accent: #19c8b9;
+  --vw-accent-dark: #11a89b;
+  --vw-accent-soft: #d8f5ef;
+  --vw-user-avatar: #4fb3a8;
+  --vw-bubble: #e6f7f3;
+  --vw-card: #f0faf7;
+  --vw-card-ink: #2f5d54;
+  --vw-input: #ffffff;
+  --vw-focus: #7fdcd2;
+  --code-bg: #edf8f5;
+  --code-border: #cfeee5;
+  --code-ink: #234c45;
+  --code-comment: #8aaaa3;
+  --code-string: #1f9d55;
+  --code-keyword: #7c5cd6;
+  --code-type: #0f8b9e;
+  --code-func: #1a73e8;
+  --code-attr: #c47a00;
+  --code-tag: #d9534f;
+  --code-op: #5f7f78;
+  --code-meta: #d6336c;
+}
+
+/* ---------- 让库的 token 跟随主题（只影响用 var() 的部分） ---------- */
+html {
+  --animal-text-color: var(--vw-ink);
+  --animal-text-color-secondary: var(--vw-ink-soft);
+  --animal-bg-color: var(--vw-canvas);
+  --animal-bg-color-secondary: var(--vw-side);
+  --animal-border-color-light: var(--vw-line);
+  --animal-primary-color: var(--vw-accent);
+  --animal-primary-color-active: var(--vw-accent-dark);
+  --animal-primary-color-bg: var(--vw-accent-soft);
+}
+
+/* ---------- 库组件写死的颜色：按 class 前缀覆盖，只碰卡片、主按钮、输入框、默认标签 ---------- */
+[class*="animal-card-"]:not([class*="animal-card-dashed"]):not([class*="animal-card-app-"]):not([class*="animal-card-purple"]):not([class*="animal-card-brown"]):not([class*="animal-card-lime"]):not([class*="animal-card-yellow-green"]):not([class*="animal-card-warm"]) {
+  background: var(--vw-card);
+  color: var(--vw-card-ink);
+}
+[class*="animal-btn-primary-"]:not([class*="danger"]) {
+  color: #fff;
+  background: var(--vw-accent);
+  border-color: var(--vw-accent);
+  box-shadow: 0 5px 0 0 var(--vw-accent-dark);
+}
+[class*="animal-btn-primary-"]:not([class*="danger"]):hover:not(:disabled) {
+  background: var(--vw-accent);
+  border-color: var(--vw-accent);
+  box-shadow: 0 6px 0 0 var(--vw-accent-dark);
+}
+[class*="animal-btn-primary-"]:not([class*="danger"]):active:not(:disabled) {
+  box-shadow: 0 2px 0 0 var(--vw-accent-dark);
+}
+[class*="animal-btn-default-"], [class*="animal-btn-text-"] {
+  color: var(--vw-ink);
+}
+[class*="animal-btn-default-"] {
+  background: var(--vw-surface);
+  border-color: var(--vw-line);
+}
+[class*="animal-input-"] input, [class*="animal-input-wrapper"] {
+  background: var(--vw-input);
+  color: var(--vw-ink);
+}
+[class*="animal-tag-"][class*="color-default"] {
+  background: var(--vw-accent-soft);
+  color: var(--vw-ink);
+}
