@@ -34,6 +34,7 @@ uuid = { version = "1", features = ["v4"] }
 notify = "7"
 regex = "1"
 async-trait = "0.1"
+include_dir = "0.7"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

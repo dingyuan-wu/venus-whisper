@@ -30,6 +30,7 @@ impl LlmClient for OpenAiClient {
             "model": req.model,
             "messages": req.messages,
             "stream": true,
+            "stream_options": { "include_usage": true },
         });
         if !req.tools.is_empty() {
             body["tools"] = serde_json::Value::Array(req.tools);
@@ -92,6 +93,15 @@ impl LlmClient for OpenAiClient {
 struct Chunk {
     #[serde(default)]
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<Usage>,
+}
+#[derive(Deserialize)]
+struct Usage {
+    #[serde(default)]
+    prompt_tokens: u32,
+    #[serde(default)]
+    completion_tokens: u32,
 }
 #[derive(Deserialize)]
 struct Choice {
@@ -144,6 +154,12 @@ impl Assembler {
             return vec![];
         };
         let mut out = vec![];
+        if let Some(u) = chunk.usage {
+            out.push(LlmEvent::Usage {
+                prompt_tokens: u.prompt_tokens,
+                completion_tokens: u.completion_tokens,
+            });
+        }
         for choice in chunk.choices {
             if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
                 out.push(LlmEvent::Delta(text));
@@ -250,6 +266,17 @@ data: [DONE]
                 LlmEvent::Done
             ]
         );
+    }
+
+    #[test]
+    fn usage_chunk_is_surfaced() {
+        let sse = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":7,\"total_tokens\":127}}\ndata: [DONE]\n";
+        let ev = run(sse);
+        assert!(ev.contains(&LlmEvent::Usage {
+            prompt_tokens: 120,
+            completion_tokens: 7
+        }));
+        assert_eq!(ev.last(), Some(&LlmEvent::Done));
     }
 
     #[test]

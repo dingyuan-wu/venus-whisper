@@ -8,6 +8,7 @@ pub const TOOL_RESULT: &str = "agent:tool_result";
 pub const DONE: &str = "agent:done";
 pub const ERROR: &str = "agent:error";
 pub const REACTION: &str = "agent:reaction";
+pub const USAGE: &str = "agent:usage";
 pub const CONFIG_CHANGED: &str = "config:changed";
 /// 托盘菜单"设置"：让前端打开设置页
 pub const OPEN_SETTINGS: &str = "ui:open_settings";
@@ -47,6 +48,41 @@ pub struct Done {
 pub struct Error {
     pub session_id: String,
     pub message: String,
+}
+
+/// 输入 token 的构成（全部本地估算），用于 debug 面板拆分展示。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Breakdown {
+    /// 人格 prompt
+    pub persona: u32,
+    /// 启用的 skills 正文
+    pub skills: u32,
+    /// 输出约定（meta 格式说明）
+    pub convention: u32,
+    /// 工具 JSON Schema 定义
+    pub tools: u32,
+    /// 本次运行之前的历史消息
+    pub history: u32,
+    /// 本次用户消息
+    pub current: u32,
+    /// 本轮运行中新增的工具调用与结果
+    pub run: u32,
+}
+
+/// 每次 LLM 调用的用量；也用于 `estimate_context` 的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct Usage {
+    pub session_id: String,
+    /// 本次运行中的第几次调用，estimate_context 时为 0
+    pub call: u32,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    /// 系统提示词（persona + skills + 输出约定）的估算 token
+    pub system_tokens: u32,
+    /// true 表示 prompt/completion 来自本地估算而非服务端
+    pub estimated: bool,
+    pub context_window: u32,
+    pub breakdown: Breakdown,
 }
 
 /// v2 钩子：模型正文末尾 `<meta>` 里的反应建议。

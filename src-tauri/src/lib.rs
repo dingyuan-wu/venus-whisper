@@ -4,8 +4,11 @@ mod config;
 mod error;
 mod events;
 mod llm;
+mod persona;
+mod skills;
 mod store;
 mod theme;
+mod tokens;
 mod tray;
 mod window_state;
 
@@ -20,8 +23,8 @@ pub fn run() {
             tray::setup(app.handle())?;
             // 首次启动写出默认配置与人格模板，方便用户直接手改
             config::load(&config::dir())?;
-            config::load_persona(&config::dir())?;
             theme::ensure_builtin(&config::dir())?;
+            persona::ensure_dirs(&config::dir())?;
             if let Some(win) = app.get_webview_window("main") {
                 window_state::restore(&win, &config::dir());
                 window_state::track(&win, config::dir());
@@ -47,6 +50,14 @@ pub fn run() {
             commands::set_persona,
             commands::open_config_dir,
             commands::list_themes,
+            commands::list_personas,
+            commands::get_user_avatar,
+            commands::list_skills,
+            commands::get_skill,
+            commands::set_skill,
+            commands::sync_skill,
+            commands::estimate_context,
+            commands::sync_persona,
             commands::list_sessions,
             commands::create_session,
             commands::rename_session,

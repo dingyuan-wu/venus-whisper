@@ -19,6 +19,11 @@ pub struct ToolCall {
 pub enum LlmEvent {
     Delta(String),
     ToolCall(ToolCall),
+    /// 服务端返回的用量（需 stream_options.include_usage，多数 OpenAI 兼容端支持）
+    Usage {
+        prompt_tokens: u32,
+        completion_tokens: u32,
+    },
     Done,
 }
 

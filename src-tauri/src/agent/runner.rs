@@ -150,17 +150,30 @@ impl Agent {
 
         let cfg0 = config::load(&self.config_dir)?;
         let max_turns = cfg0.agent.max_turns.max(1);
+        let base_len = self.store.get_messages(session_id)?.len(); // 历史 + 本次用户消息
         let tool_defs = tools::openai_defs(&self.tools);
+        let tools_tokens =
+            crate::tokens::estimate(&serde_json::to_string(&tool_defs).unwrap_or_default());
 
-        for _ in 0..max_turns {
+        for call_no in 1..=max_turns {
             if cancel.load(Ordering::SeqCst) {
                 return Err("已取消".into());
             }
             let cfg = config::load(&self.config_dir)?;
-            let persona = config::load_persona(&self.config_dir)?;
+            let persona = crate::persona::load_active(&self.config_dir, &cfg)?;
+            let skills = crate::skills::load_enabled(&self.config_dir, &cfg);
             let llm = self.llm(&cfg);
 
-            let mut messages = vec![json!({"role": "system", "content": system_prompt(&persona)})];
+            let system = system_prompt(&persona, &skills);
+            let system_tokens = crate::tokens::estimate(&system) + tools_tokens;
+            let persona_tokens = crate::tokens::estimate(&persona);
+            let skills_tokens: u32 = skills
+                .iter()
+                .map(|(n, b)| crate::tokens::estimate(n) + crate::tokens::estimate(b))
+                .sum();
+            let convention_tokens =
+                crate::tokens::estimate(&system).saturating_sub(persona_tokens + skills_tokens);
+            let mut messages = vec![json!({"role": "system", "content": system})];
             messages.extend(
                 self.store
                     .get_messages(session_id)?
@@ -168,14 +181,41 @@ impl Agent {
                     .map(|m| m.content),
             );
 
+            let model = cfg
+                .llm
+                .active_model()
+                .ok_or("没有配置任何模型，请先在设置里添加")?
+                .model
+                .clone();
+            let prompt_estimate = crate::tokens::estimate_messages(&messages);
+            let context_window = cfg
+                .llm
+                .active_model()
+                .map(|m| m.context_window)
+                .unwrap_or(0);
+            // messages[0] 是 system；之后依次为历史、本次用户消息、本轮工具往返
+            let body = &messages[1..];
+            let hist_n = base_len.saturating_sub(1).min(body.len());
+            let (history_msgs, rest) = body.split_at(hist_n);
+            let (current_msgs, run_msgs) = rest.split_at(1.min(rest.len()));
+            let breakdown = events::Breakdown {
+                persona: persona_tokens,
+                skills: skills_tokens,
+                convention: convention_tokens,
+                tools: tools_tokens,
+                history: crate::tokens::estimate_messages(history_msgs),
+                current: crate::tokens::estimate_messages(current_msgs),
+                run: crate::tokens::estimate_messages(run_msgs),
+            };
             let mut stream = llm
                 .chat(ChatRequest {
-                    model: cfg.llm.model.clone(),
+                    model,
                     messages,
                     tools: tool_defs.clone(),
                 })
                 .await?;
 
+            let mut usage: Option<(u32, u32)> = None;
             let mut full = String::new();
             let mut emitted = 0usize;
             let mut calls: Vec<ToolCall> = vec![];
@@ -199,9 +239,36 @@ impl Agent {
                         }
                     }
                     LlmEvent::ToolCall(c) => calls.push(c),
+                    LlmEvent::Usage {
+                        prompt_tokens,
+                        completion_tokens,
+                    } => usage = Some((prompt_tokens, completion_tokens)),
                     LlmEvent::Done => break,
                 }
             }
+            // 用量：优先服务端；没有就本地估算（含工具调用参数）
+            let completion_estimate = crate::tokens::estimate(&full)
+                + calls
+                    .iter()
+                    .map(|c| crate::tokens::estimate(&c.arguments) + 8)
+                    .sum::<u32>();
+            let (prompt_tokens, completion_tokens, estimated) = match usage {
+                Some((p, c)) => (p, c, false),
+                None => (prompt_estimate, completion_estimate, true),
+            };
+            emit.emit_json(
+                events::USAGE,
+                json!(events::Usage {
+                    session_id: session_id.into(),
+                    call: call_no,
+                    prompt_tokens,
+                    completion_tokens,
+                    system_tokens,
+                    estimated,
+                    context_window,
+                    breakdown,
+                }),
+            );
             let (clean, reaction) = strip_meta(&full);
             if clean.len() > emitted {
                 emit.emit_json(
@@ -281,7 +348,13 @@ impl Agent {
     fn llm(&self, cfg: &Config) -> Arc<dyn LlmClient> {
         match &self.llm_override {
             Some(l) => l.clone(),
-            None => Arc::new(OpenAiClient::new(&cfg.llm.base_url, &cfg.llm.api_key)),
+            None => {
+                let m = cfg.llm.active_model();
+                Arc::new(OpenAiClient::new(
+                    m.map(|m| m.base_url.as_str()).unwrap_or(""),
+                    m.map(|m| m.api_key.as_str()).unwrap_or(""),
+                ))
+            }
         }
     }
 
@@ -355,7 +428,65 @@ fn ms(t: std::time::Instant) -> u64 {
 const META_OPEN: &str = "<meta>";
 const META_CLOSE: &str = "</meta>";
 
-fn system_prompt(persona: &str) -> String {
+/// 估算某会话下一次调用的上下文占用（系统提示词 + 历史），供右侧栏在没有新调用时显示。
+pub fn estimate_context(
+    store: &Store,
+    config_dir: &Path,
+    session_id: &str,
+) -> Result<events::Usage> {
+    let cfg = config::load(config_dir)?;
+    let persona = crate::persona::load_active(config_dir, &cfg)?;
+    let skills = crate::skills::load_enabled(config_dir, &cfg);
+    let system = system_prompt(&persona, &skills);
+    let tool_defs = tools::openai_defs(&tools::all());
+    let tools_tokens =
+        crate::tokens::estimate(&serde_json::to_string(&tool_defs).unwrap_or_default());
+    let system_tokens = crate::tokens::estimate(&system) + tools_tokens;
+    let persona_tokens = crate::tokens::estimate(&persona);
+    let skills_tokens: u32 = skills
+        .iter()
+        .map(|(n, b)| crate::tokens::estimate(n) + crate::tokens::estimate(b))
+        .sum();
+    let history: Vec<Value> = store
+        .get_messages(session_id)?
+        .into_iter()
+        .map(|m| m.content)
+        .collect();
+    let history_tokens = crate::tokens::estimate_messages(&history);
+    Ok(events::Usage {
+        session_id: session_id.into(),
+        call: 0,
+        prompt_tokens: system_tokens + history_tokens,
+        completion_tokens: 0,
+        system_tokens,
+        estimated: true,
+        context_window: cfg
+            .llm
+            .active_model()
+            .map(|m| m.context_window)
+            .unwrap_or(0),
+        breakdown: events::Breakdown {
+            persona: persona_tokens,
+            skills: skills_tokens,
+            convention: crate::tokens::estimate(&system)
+                .saturating_sub(persona_tokens + skills_tokens),
+            tools: tools_tokens,
+            history: history_tokens,
+            current: 0,
+            run: 0,
+        },
+    })
+}
+
+fn system_prompt(persona: &str, skills: &[(String, String)]) -> String {
+    let mut out = persona.to_string();
+    if !skills.is_empty() {
+        out.push_str("\n\n## 可用技能\n以下是用户启用的技能文档，按需遵循。\n");
+        for (name, body) in skills {
+            out.push_str(&format!("\n### {name}\n{body}\n"));
+        }
+    }
+    let persona = out;
     format!(
         "{persona}\n\n\
          ## 输出约定\n\
@@ -505,8 +636,13 @@ mod tests {
             .run(col.clone(), sid.clone(), "a.txt 里有什么".into())
             .await;
 
+        let names: Vec<_> = col
+            .names()
+            .into_iter()
+            .filter(|n| n != events::USAGE)
+            .collect();
         assert_eq!(
-            col.names(),
+            names,
             vec![
                 events::TOOL_RESULT,
                 events::DELTA,
@@ -514,6 +650,37 @@ mod tests {
                 events::DONE
             ]
         );
+        let usages: Vec<Value> = col
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, _)| e == events::USAGE)
+            .map(|(_, p)| p.clone())
+            .collect();
+        assert_eq!(usages.len(), 2, "两次 LLM 调用两条用量");
+        assert_eq!(usages[0]["call"], 1);
+        assert_eq!(usages[1]["call"], 2);
+        assert_eq!(usages[0]["estimated"], true, "假客户端没给 usage，走估算");
+        assert!(
+            usages[1]["prompt_tokens"].as_u64().unwrap()
+                > usages[0]["prompt_tokens"].as_u64().unwrap(),
+            "第二次上下文更长"
+        );
+        assert!(usages[1]["system_tokens"].as_u64().unwrap() > 0);
+        let b0 = &usages[0]["breakdown"];
+        let b1 = &usages[1]["breakdown"];
+        assert!(b0["persona"].as_u64().unwrap() > 0 && b0["tools"].as_u64().unwrap() > 0);
+        assert!(b0["current"].as_u64().unwrap() > 0, "本次用户消息");
+        assert_eq!(b0["run"], 0, "第一次调用还没有工具往返");
+        assert!(
+            b1["run"].as_u64().unwrap() > 0,
+            "第二次包含 tool_calls 与 tool 结果"
+        );
+        assert_eq!(b0["history"], 0, "新会话没有历史");
+        let est = estimate_context(&agent.store, &agent.config_dir, &sid).unwrap();
+        assert_eq!(est.call, 0);
+        assert!(est.prompt_tokens >= est.system_tokens);
         let tr = col.find(events::TOOL_RESULT).unwrap();
         assert_eq!(tr["output"], "hello");
         assert_eq!(tr["ok"], true);
