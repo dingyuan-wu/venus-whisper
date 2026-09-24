@@ -8,6 +8,7 @@ const wrap = (C: ComponentType<IconProps>) => (p: IconProps) => <C size={16} col
 
 export const ArrowLeft = wrap(N.ArrowLeftIcon);
 export const ArrowUp = wrap(N.ArrowUpIcon);
+export const Bulb = wrap(N.BulbIcon);
 export const Chat = wrap(N.ChatIcon);
 export const Check = wrap(N.CheckIcon);
 export const ChevronDown = wrap(N.ChevronDownIcon);

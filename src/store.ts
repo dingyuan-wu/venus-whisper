@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { Notification } from "animal-island-ui";
 import { create } from "zustand";
-import { api, type Config, type Message, type Session, type Theme } from "./api";
+import { api, type Config, type Message, type Persona, type Session, type Skill, type Theme } from "./api";
 import {
   EVENTS,
   type AgentDelta,
@@ -10,6 +10,7 @@ import {
   type AgentReaction,
   type AgentToolRequest,
   type AgentToolResult,
+  type AgentUsage,
   type ApprovalDecision,
 } from "./events";
 
@@ -43,8 +44,16 @@ interface State {
   currentId: string | null;
   messages: Record<string, Message[]>;
   live: Record<string, Live>;
+  /** 每会话最近一次运行的逐次调用用量（debug 模式展示） */
+  usage: Record<string, AgentUsage[]>;
+  /** 每会话当前上下文占用（最后一次调用的 prompt+completion，或 estimate_context 的估算） */
+  context: Record<string, AgentUsage>;
   settings: Config | null;
+  /** 当前选中人格的 prompt 文本 */
   persona: string;
+  personas: Persona[];
+  skills: Skill[];
+  userAvatar: string | null;
   themes: Theme[];
   lastReaction: AgentReaction | null;
 
@@ -59,6 +68,16 @@ interface State {
   cancel: () => Promise<void>;
   loadSettings: () => Promise<void>;
   saveSettings: (cfg: Config, persona: string) => Promise<void>;
+  /** 切换人格：写配置，并加载该人格的 prompt 文本 */
+  selectPersona: (id: string) => Promise<void>;
+  /** 内置 → 本地副本，成功后刷新列表并选中本地副本 */
+  syncPersona: (id: string, overwrite: boolean) => Promise<void>;
+  /** 切换当前模型，立即落盘 */
+  setActiveModel: (id: string) => Promise<void>;
+  /** 内置 skill → 本地副本，成功后刷新列表 */
+  syncSkill: (id: string, overwrite: boolean) => Promise<void>;
+  /** 启用/停用某个 skill，立即落盘 */
+  toggleSkill: (id: string, on: boolean) => Promise<void>;
   setTheme: (id: string) => Promise<void>;
 }
 
@@ -83,8 +102,13 @@ export const useStore = create<State>((set, get) => ({
   currentId: null,
   messages: {},
   live: {},
+  usage: {},
+  context: {},
   settings: null,
   persona: "",
+  personas: [],
+  skills: [],
+  userAvatar: null,
   themes: [],
   lastReaction: null,
 
@@ -101,6 +125,7 @@ export const useStore = create<State>((set, get) => ({
     set({ currentId: id, sidebarOpen: false, view: "chat" });
     const msgs = await api.getMessages(id);
     set((s) => ({ messages: { ...s.messages, [id]: msgs } }));
+    api.estimateContext(id).then((u) => set((s) => (s.context[id]?.call ? s : { context: { ...s.context, [id]: u } }))).catch(() => {});
   },
 
   newSession: async () => {
@@ -134,6 +159,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({
       messages: { ...s.messages, [id!]: [...(s.messages[id!] ?? []), optimistic] },
       live: { ...s.live, [id!]: emptyLive() },
+      usage: { ...s.usage, [id!]: [] },
     }));
     if (session && session.title === "新会话") {
       const title = text.replace(/\s+/g, " ").slice(0, 24);
@@ -156,16 +182,62 @@ export const useStore = create<State>((set, get) => ({
   },
 
   loadSettings: async () => {
-    const [settings, persona, themes] = await Promise.all([api.getSettings(), api.getPersona(), api.listThemes()]);
+    const [settings, themes, personas, skills, userAvatar] = await Promise.all([
+      api.getSettings(),
+      api.listThemes(),
+      api.listPersonas(),
+      api.listSkills().catch(() => []),
+      api.getUserAvatar().catch(() => null),
+    ]);
+    const persona = await api.getPersona(settings.agent.persona).catch(() => api.getPersona());
     applyTheme(themes.find((t) => t.id === settings.ui?.theme) ?? themes[0]);
-    set({ settings, persona, themes });
+    set({ settings, persona, personas, skills, themes, userAvatar });
   },
 
   saveSettings: async (cfg, persona) => {
     await api.setSettings(cfg);
-    if (persona !== get().persona) await api.setPersona(persona);
+    const active = get().personas.find((p) => p.id === cfg.agent.persona);
+    if (persona !== get().persona && active?.kind === "md" && active.source === "local") await api.setPersona(persona, cfg.agent.persona);
     applyTheme(get().themes.find((t) => t.id === cfg.ui.theme));
     set({ settings: cfg, persona });
+  },
+
+  selectPersona: async (id) => {
+    const cfg = get().settings;
+    if (!cfg) return;
+    const next = { ...cfg, agent: { ...cfg.agent, persona: id } };
+    const persona = await api.getPersona(id);
+    set({ settings: next, persona });
+    await api.setSettings(next);
+  },
+
+  syncPersona: async (id, overwrite) => {
+    const localId = await api.syncPersona(id, overwrite);
+    const personas = await api.listPersonas();
+    set({ personas });
+    await get().selectPersona(localId);
+  },
+
+  setActiveModel: async (id) => {
+    const cfg = get().settings;
+    if (!cfg) return;
+    const next = { ...cfg, llm: { ...cfg.llm, active: id } };
+    set({ settings: next });
+    await api.setSettings(next);
+  },
+
+  syncSkill: async (id, overwrite) => {
+    await api.syncSkill(id, overwrite);
+    set({ skills: await api.listSkills() });
+  },
+
+  toggleSkill: async (id, on) => {
+    const cfg = get().settings;
+    if (!cfg) return;
+    const cur = cfg.agent.skills.filter((s) => s !== id);
+    const next = { ...cfg, agent: { ...cfg.agent, skills: on ? [...cur, id] : cur } };
+    set({ settings: next });
+    await api.setSettings(next);
   },
 
   /** 切主题即时生效并落盘，不等"保存设置"。 */
@@ -258,6 +330,12 @@ export function bindEvents() {
       });
     }),
     listen<AgentReaction>(EVENTS.reaction, ({ payload }) => set(() => ({ lastReaction: payload }))),
+    listen<AgentUsage>(EVENTS.usage, ({ payload }) =>
+      set((s) => ({
+        usage: { ...s.usage, [payload.session_id]: [...(s.usage[payload.session_id] ?? []), payload] },
+        context: { ...s.context, [payload.session_id]: payload },
+      })),
+    ),
     listen(EVENTS.configChanged, () => useStore.getState().loadSettings()),
     listen(EVENTS.openSettings, () => set(() => ({ view: "settings" }))),
   ];

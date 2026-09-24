@@ -18,7 +18,7 @@
     "animal-island-ui": "^1.14.0",
     "classnames": "^2.5.1",
     "highlight.js": "^11.12.0",
-    "katex": "^0.18.9",
+    "katex": "^0.16.47",
     "naive-icons": "^1.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

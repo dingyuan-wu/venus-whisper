@@ -1,5 +1,5 @@
 // 右侧会话信息栏：常驻、只读。当前可操作目录、审批模式、模型、本目录已放行命令。
-import { Card, Tag } from "animal-island-ui";
+import { Button, Card, Tag } from "animal-island-ui";
 import { useStore } from "../store";
 import { CopyButton } from "./CopyButton";
 import { Folder } from "./icons";
@@ -17,7 +17,12 @@ function sameWorkspace(entry: string, ws: string): boolean {
 }
 
 export function ContextPanel() {
-  const { sessions, currentId, settings, lastReaction } = useStore();
+  const { sessions, currentId, settings, lastReaction, context, setActiveModel } = useStore();
+  const active = settings?.llm.models.find((m) => m.id === settings.llm.active) ?? settings?.llm.models[0];
+  const ctx = currentId ? context[currentId] : undefined;
+  const ctxWindow = active?.context_window ?? 0;
+  const used = ctx ? ctx.prompt_tokens + ctx.completion_tokens : 0;
+  const pct = ctxWindow > 0 ? Math.min(100, Math.round((used / ctxWindow) * 100)) : null;
   const session = sessions.find((s) => s.id === currentId);
   const ws = session?.workspace ?? settings?.agent.workspace ?? "";
   const allow = settings?.agent.allow.find((e) => sameWorkspace(e.workspace, ws))?.commands ?? [];
@@ -42,9 +47,47 @@ export function ContextPanel() {
 
       <section>
         <h3 className="panel-label">模型</h3>
+        {settings && settings.llm.models.length > 1 && (
+          <div className="model-list" role="radiogroup" aria-label="切换模型">
+            {settings.llm.models.map((m) => (
+              <Button
+                key={m.id}
+                size="small"
+                block
+                type={m.id === active?.id ? "primary" : "text"}
+                role="radio"
+                aria-checked={m.id === active?.id}
+                onClick={() => setActiveModel(m.id)}
+              >
+                {m.name || m.id}
+              </Button>
+            ))}
+          </div>
+        )}
         <Card className="model-card">
-          <strong>{settings?.llm.model ?? "—"}</strong>
-          <span title={settings?.llm.base_url}>{settings?.llm.base_url ?? ""}</span>
+          <strong>{active?.model ?? "未配置模型"}</strong>
+          <span title={active?.base_url}>{active?.base_url ?? "在设置里添加"}</span>
+        </Card>
+      </section>
+
+      <section>
+        <h3 className="panel-label">上下文占用</h3>
+        <Card className="ctx-card">
+          {pct == null ? (
+            <span className="panel-hint">在模型设置里填上下文窗口后显示百分比</span>
+          ) : (
+            <>
+              <div className="ctx-row">
+                <strong className={pct >= 90 ? "ctx-danger" : pct >= 70 ? "ctx-warn" : ""}>{pct}%</strong>
+                <span>
+                  {used.toLocaleString()} / {ctxWindow.toLocaleString()} tokens{ctx?.estimated ? "（估算）" : ""}
+                </span>
+              </div>
+              <div className="ctx-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+                <i style={{ width: `${pct}%` }} className={pct >= 90 ? "ctx-danger" : pct >= 70 ? "ctx-warn" : ""} />
+              </div>
+            </>
+          )}
         </Card>
       </section>
 

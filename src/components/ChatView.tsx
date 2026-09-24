@@ -6,7 +6,14 @@ import { fmtTime } from "./Sidebar";
 import { ArrowUp, Flower, Menu, Stop, User } from "./icons";
 
 export function ChatView() {
-  const { currentId, sessions, messages, live, settings, send, cancel, setSidebarOpen } = useStore();
+  const { currentId, sessions, messages, live, settings, personas, userAvatar, usage, send, cancel, setSidebarOpen } = useStore();
+  const debug = !!settings?.ui.debug;
+  const runUsage = currentId ? usage[currentId] ?? [] : [];
+  const userName = settings?.user?.name?.trim() || "你";
+  const userIcon = userAvatar ? <img className="avatar-img" src={userAvatar} alt="" /> : <User />;
+  const active = personas.find((p) => p.id === settings?.agent.persona);
+  const agentName = active?.kind === "role" ? active.name : "Venus";
+  const agentAvatar = active?.avatar ? <img className="avatar-img" src={active.avatar} alt="" /> : <Flower />;
   const session = sessions.find((s) => s.id === currentId);
   const msgs = currentId ? messages[currentId] ?? [] : [];
   const cur = currentId ? live[currentId] : undefined;
@@ -118,11 +125,10 @@ export function ChatView() {
           )}
           {turns.map(({ msg, segments }) => (
             <article key={msg.id} className={`message message-${msg.role}`}>
-              <span className={`avatar avatar-${msg.role}`}>{msg.role === "user" ? <User /> : <Flower />}</span>
+              <span className={`avatar avatar-${msg.role}`}>{msg.role === "user" ? userIcon : agentAvatar}</span>
               <div className="message-body">
                 <div className="message-meta">
-                  <strong>{msg.role === "user" ? "你" : "Venus"}</strong>
-                  {msg.role === "assistant" && settings && <Tag size="small">{settings.llm.model}</Tag>}
+                  <strong>{msg.role === "user" ? userName : agentName}</strong>
                   <time>{fmtTime(msg.created_at)}</time>
                 </div>
                 {msg.role === "user" ? (
@@ -135,19 +141,59 @@ export function ChatView() {
           ))}
           {cur && (
             <article className="message message-assistant">
-              <span className="avatar avatar-assistant">
-                <Flower />
-              </span>
+              <span className="avatar avatar-assistant">{agentAvatar}</span>
               <div className="message-body">
                 <div className="message-meta">
-                  <strong>Venus</strong>
-                  {settings && <Tag size="small">{settings.llm.model}</Tag>}
+                  <strong>{agentName}</strong>
                 </div>
                 <Segments segments={cur.segments} />
                 {running && !waiting && <AssistantText text={cur.segments.length ? "" : "…"} />}
                 {running && !waiting && <span className="typing" aria-label="正在生成" />}
               </div>
             </article>
+          )}
+          {debug && runUsage.length > 0 && (
+            <aside className="debug-usage" aria-label="token 用量">
+              <div className="debug-head">
+                <span>DEBUG · 本轮 {runUsage.length} 次调用</span>
+                <span>
+                  合计 输入 {runUsage.reduce((a, u) => a + u.prompt_tokens, 0)} · 输出 {runUsage.reduce((a, u) => a + u.completion_tokens, 0)}
+                </span>
+              </div>
+              {runUsage.map((u) => {
+                const b = u.breakdown;
+                const parts: [string, number][] = [
+                  ["人格", b.persona],
+                  ["技能", b.skills],
+                  ["输出约定", b.convention],
+                  ["工具定义", b.tools],
+                  ["历史对话", b.history],
+                  ["本次消息", b.current],
+                  ["本轮工具往返", b.run],
+                ];
+                const sum = parts.reduce((a, [, v]) => a + v, 0);
+                return (
+                  <div key={u.call} className="debug-call">
+                    <div className="debug-row">
+                      <span>#{u.call}</span>
+                      <span>输入 {u.prompt_tokens}</span>
+                      <span>输出 {u.completion_tokens}</span>
+                      <span>系统提示词 {u.system_tokens}</span>
+                      {u.estimated && <span className="debug-est">估算</span>}
+                    </div>
+                    <div className="debug-row debug-sub">
+                      <span>输入构成</span>
+                      {parts.filter(([, v]) => v > 0).map(([k, v]) => (
+                        <span key={k}>
+                          {k} {v}
+                        </span>
+                      ))}
+                      <span className="debug-est">构成为本地估算{u.estimated ? "" : `，合计 ${sum}，服务端计 ${u.prompt_tokens}`}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </aside>
           )}
         </div>
       </div>

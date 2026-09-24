@@ -7,6 +7,7 @@ export const EVENTS = {
   done: "agent:done",
   error: "agent:error",
   reaction: "agent:reaction",
+  usage: "agent:usage",
   configChanged: "config:changed",
   openSettings: "ui:open_settings",
 } as const;
@@ -49,6 +50,27 @@ export interface AgentReaction {
   intent: string;
   suggested_reaction: string;
   confidence: number;
+}
+
+export interface AgentUsageBreakdown {
+  persona: number;
+  skills: number;
+  convention: number;
+  tools: number;
+  history: number;
+  current: number;
+  run: number;
+}
+
+export interface AgentUsage {
+  session_id: string;
+  call: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  system_tokens: number;
+  estimated: boolean;
+  context_window: number;
+  breakdown: AgentUsageBreakdown;
 }
 
 export type ApprovalDecision = "allow" | "deny" | "always";
