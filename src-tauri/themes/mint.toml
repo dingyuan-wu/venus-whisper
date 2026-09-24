@@ -1,0 +1,34 @@
+# 主题文件：复制一份改名（文件名即主题 id），改颜色即可成为新主题。
+# 保存后应用立即刷新。缺失的键回落到默认值。
+name = "薄荷清晨"
+description = "薄荷绿主色，白底，清爽"
+
+[colors]          # 界面色，对应 CSS 变量 --vw-<key>
+canvas = "#f3fbf8"        # 窗口底色
+surface = "#ffffff"       # 对话区/设置页底色
+side = "#e9f7f2"          # 左右侧栏底色
+line = "#cfeee5"          # 分割线/边框
+ink = "#2f5d54"           # 正文文字
+ink-soft = "#6f9a90"      # 次要文字
+accent = "#19c8b9"        # 主色（按钮、头像、焦点）
+accent-dark = "#11a89b"   # 主色阴影/按压
+accent-soft = "#d8f5ef"   # 主色浅底（行内代码、焦点光晕）
+user-avatar = "#4fb3a8"   # 用户头像
+bubble = "#e6f7f3"        # 用户气泡
+card = "#f0faf7"          # 卡片底色
+card-ink = "#2f5d54"      # 卡片文字
+input = "#ffffff"         # 输入框底色
+
+[code]            # 代码块，对应 CSS 变量 --code-<key>
+bg = "#edf8f5"
+border = "#cfeee5"
+ink = "#234c45"
+comment = "#8aaaa3"
+string = "#1f9d55"
+keyword = "#7c5cd6"
+type = "#0f8b9e"
+func = "#1a73e8"
+attr = "#c47a00"
+tag = "#d9534f"
+op = "#5f7f78"
+meta = "#d6336c"
